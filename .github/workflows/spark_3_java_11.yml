@@ -1,0 +1,20 @@
+name: Spark 3 / Java 11
+on:
+  push:
+    branches:
+    - 'main'
+  pull_request:
+    branches:
+    - 'main'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Java, SBT
+        uses: olafurpg/setup-scala@v11
+        with:
+          java-version: 'adopt@1.11'
+      - name: Build
+        working-directory: 'spark-httpjson/'
+        run: sbt ++2.12.10 clean compile package
