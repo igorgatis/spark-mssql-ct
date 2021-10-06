@@ -16,5 +16,4 @@ jobs:
         with:
           java-version: 'adopt@1.11'
       - name: Build
-        working-directory: 'spark-httpjson/'
         run: sbt ++2.12.10 clean compile package
