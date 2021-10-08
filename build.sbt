@@ -30,8 +30,8 @@ pomExtra :=
   <url>https://github.com/igorgatis/spark-mssql-ct</url>
   <licenses>
     <license>
-      <name>Apache License, Version 2.0</name>
-      <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+      <name>MIT License</name>
+      <url>https://raw.githubusercontent.com/igorgatis/spark-mssql-ct/main/LICENSE</url>
       <distribution>repo</distribution>
     </license>
   </licenses>
