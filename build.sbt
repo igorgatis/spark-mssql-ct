@@ -4,7 +4,7 @@ version := "0.1.0"
 
 organization := "github.com/igorgatis"
 
-scalaVersion := "2.12.10"
+scalaVersion := "2.12.14"
 
 crossScalaVersions := Seq("2.11.12", "2.12.10")
 
@@ -16,10 +16,12 @@ val sparkVersion = "3.1.1"
 autoScalaLibrary := false
 
 libraryDependencies ++= Seq(
+  "org.apache.spark" %% "spark-catalyst" % sparkVersion % Provided,
   "org.apache.spark" %% "spark-core" % sparkVersion % Provided,
   "org.apache.spark" %% "spark-sql" % sparkVersion % Provided,
   "org.apache.spark" %% "spark-streaming" % sparkVersion % Provided,
-  "org.scala-lang" % "scala-library" % scalaVersion.value % Provided
+  "org.scala-lang" % "scala-library" % scalaVersion.value % Provided,
+  "com.microsoft.sqlserver" % "mssql-jdbc" % "8.4.1.jre8"
 )
 
 publishMavenStyle := true
