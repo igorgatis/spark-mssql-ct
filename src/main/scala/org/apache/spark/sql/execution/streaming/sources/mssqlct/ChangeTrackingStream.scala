@@ -1,29 +1,26 @@
 package org.apache.spark.sql.execution.streaming.sources.mssqlct
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, PartitionReaderFactory}
 import org.apache.spark.sql.connector.read.streaming.{MicroBatchStream, Offset}
-import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
+import org.apache.spark.sql.connector.read.{InputPartition, PartitionReaderFactory}
 import org.apache.spark.sql.execution.streaming.LongOffset
-import scala.collection.mutable.{ArrayBuffer, Queue}
 
-case class ChangeTrackingInputPartition(
-    tableInfo: ChangeTrackingTableInfo,
-    start: Long,
-    end: Long) extends InputPartition
+import scala.collection.mutable
 
 class ChangeTrackingStream(tableInfo: ChangeTrackingTableInfo)
-    extends MicroBatchStream with Logging {
+  extends MicroBatchStream with Logging {
 
   private var committedOffset = LongOffset(0L)
   private var largestOffset = LongOffset(0L)
-  private val nextVersions = new Queue[Long]()
+  private val nextVersions = new mutable.Queue[Long]()
 
   override def initialOffset(): Offset = synchronized {
+    logError(s"initialOffset=$committedOffset")
     committedOffset
   }
 
   override def commit(end: Offset): Unit = synchronized {
+    logError(s"commit($end)")
     committedOffset = end.asInstanceOf[LongOffset]
     nextVersions.dropWhile(v => v <= committedOffset.offset)
   }
@@ -33,21 +30,28 @@ class ChangeTrackingStream(tableInfo: ChangeTrackingTableInfo)
   }
 
   override def latestOffset(): Offset = synchronized {
-    nextVersions ++= Utils.getNextChanges(tableInfo, largestOffset.offset)
-    if (nextVersions.length > 0) {
-      largestOffset = LongOffset(nextVersions.max)
+    try {
+      nextVersions ++= Utils.getNextChanges(tableInfo, largestOffset.offset)
+      if (nextVersions.nonEmpty) {
+        largestOffset = LongOffset(nextVersions.max)
+      }
+      logError(s"largestOffset=$largestOffset")
+    } catch {
+      case e: Exception => logError(s"$e")
     }
     largestOffset
   }
 
   override def planInputPartitions(
-      startOffset: Offset,
-      endOffset: Offset): Array[InputPartition] = synchronized {
-    val startVersion = startOffset.asInstanceOf[LongOffset].offset
-    val endVersion = endOffset.asInstanceOf[LongOffset].offset
-    nextVersions
-      .filter(v => startVersion < v && v <= endVersion)
-      .map(v => ChangeTrackingInputPartition(tableInfo, v-1, v).asInstanceOf[InputPartition])
+                                    startOffset: Offset,
+                                    endOffset: Offset): Array[InputPartition] = synchronized {
+    val start = startOffset.asInstanceOf[LongOffset].offset
+    val end = endOffset.asInstanceOf[LongOffset].offset
+    val filteredVersions = nextVersions
+      .filter(v => start < v && v <= end)
+    logError(s"planInputPartitions($start, $end): $filteredVersions")
+    filteredVersions
+      .map(v => ChangeTrackingInputPartition(tableInfo, v - 1, v).asInstanceOf[InputPartition])
       .toArray
   }
 

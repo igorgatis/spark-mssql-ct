@@ -1,15 +1,15 @@
 package org.apache.spark.sql.execution.streaming.sources.mssqlct
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.read.PartitionReader
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
 
+import java.sql.{Connection, PreparedStatement}
+
 class ChangeTrackingReader(
-    partition: ChangeTrackingInputPartition
-  ) extends PartitionReader[InternalRow] with Logging {
+                            partition: ChangeTrackingInputPartition
+                          ) extends PartitionReader[InternalRow] with Logging {
 
   private var initialized: Boolean = false
   private var connection: Connection = null
@@ -31,6 +31,7 @@ class ChangeTrackingReader(
       case e: Exception => {
         logError(s"$e")
         close()
+        throw e
       }
     }
   }
@@ -52,12 +53,12 @@ class ChangeTrackingReader(
   override def close(): Unit = {
     try {
       if (statement != null) {
-        statement.close
+        statement.close()
         statement = null
       }
     } finally {
       if (connection != null) {
-        connection.close
+        connection.close()
         connection = null
       }
     }

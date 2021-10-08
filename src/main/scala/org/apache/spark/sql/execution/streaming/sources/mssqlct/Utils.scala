@@ -1,24 +1,27 @@
 package org.apache.spark.sql.execution.streaming.sources.mssqlct
 
-import java.sql.{Connection, Driver, JDBCType, PreparedStatement, ResultSet, ResultSetMetaData, SQLException}
-import java.util.concurrent.TimeUnit
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
 import org.apache.spark.sql.catalyst.util.{DateTimeUtils, GenericArrayData}
 import org.apache.spark.sql.execution.datasources.jdbc.{JDBCOptions, JdbcUtils}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
+import org.apache.spark.sql.jdbc.JdbcDialects
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.NextIterator
+
+import java.sql.{Connection, ResultSet, SQLException}
+import java.util.concurrent.TimeUnit
 import scala.collection.mutable.ArrayBuffer
 
 object Utils extends Logging {
   private def buildChangesQuery(
-      tableInfo: ChangeTrackingTableInfo,
-      version: Long = 0,
-      where: String = ""): String = {
+                                 tableInfo: ChangeTrackingTableInfo,
+                                 version: Long = 0,
+                                 where: String = ""): String = {
+
+    val tableName = tableInfo.options.tableOrQuery
 
     val cols = ArrayBuffer(
       s"ct.SYS_CHANGE_VERSION",
@@ -29,23 +32,22 @@ object Utils extends Logging {
     tableInfo.otherColumns
       .foreach(c => cols += s"t.[$c]")
 
-    val tableName = tableInfo.options.tableOrQuery
-
-    val joinExpr = s"LEFT OUTER JOIN [$tableName] t ON " +
-      tableInfo.primaryKeyColumns
+    val joinPkExp = tableInfo.primaryKeyColumns
       .map(c => s"(ct.[$c] = t.[$c])")
       .mkString(" AND ")
 
-    val versionExpr = if (version > 0) s"$version" else "NULL"
-    Array(
+    var versionExpr = if (version >= 0) s"$version" else "NULL"
+
+    val lines = Array(
       s"SELECT " + cols.mkString(", "),
       s"FROM CHANGETABLE(CHANGES [$tableName], $versionExpr) AS ct",
-      joinExpr,
-      if (where.length > 0) s"WHERE ($where)" else "",
+      s"LEFT OUTER JOIN [$tableName] t ON $joinPkExp",
+      if (where.nonEmpty) s"WHERE ($where)" else "",
       s"ORDER BY ct.SYS_CHANGE_VERSION",
+      ";"
     )
-      .filter(l => l.length > 0)
-      .mkString(" ") + ";"
+
+    lines.filter(l => l.nonEmpty).mkString(" ")
   }
 
   def getChangeTableSchema(tableInfo: ChangeTrackingTableInfo): StructType = {
@@ -54,9 +56,9 @@ object Utils extends Logging {
   }
 
   def buildQueryForData(
-      tableInfo: ChangeTrackingTableInfo,
-      startVersion: Long,
-      endVersion: Long): String = {
+                         tableInfo: ChangeTrackingTableInfo,
+                         startVersion: Long,
+                         endVersion: Long): String = {
     buildChangesQuery(
       tableInfo,
       version = startVersion,
@@ -67,16 +69,16 @@ object Utils extends Logging {
     val tableName = tableInfo.options.tableOrQuery
     val query = if (tableInfo.suggestedMaxChanges > 0) {
       s"""
-      |SELECT DISTINCT(ct2.SYS_CHANGE_VERSION) FROM (
-      |  SELECT TOP(${tableInfo.suggestedMaxChanges}) ct.SYS_CHANGE_VERSION
-      |  FROM CHANGETABLE(CHANGES [$tableName], $lastVersion) AS ct
-      |  ORDER BY ct.SYS_CHANGE_VERSION
-      |) AS ct2
+         |SELECT DISTINCT(ct2.SYS_CHANGE_VERSION) FROM (
+         |  SELECT TOP(${tableInfo.suggestedMaxChanges}) ct.SYS_CHANGE_VERSION
+         |  FROM CHANGETABLE(CHANGES [$tableName], $lastVersion) AS ct
+         |  ORDER BY ct.SYS_CHANGE_VERSION
+         |) AS ct2
       """.stripMargin
     } else {
       s"""
-      |SELECT DISTINCT(ct.SYS_CHANGE_VERSION)
-      |FROM CHANGETABLE(CHANGES [$tableName], $lastVersion) AS ct
+         |SELECT DISTINCT(ct.SYS_CHANGE_VERSION)
+         |FROM CHANGETABLE(CHANGES [$tableName], $lastVersion) AS ct
       """.stripMargin
     }
     var result = ArrayBuffer[Long]()
@@ -100,9 +102,9 @@ object Utils extends Logging {
   }
 
   def executeQuery[TResult](
-      query: String,
-      options: JDBCOptions,
-      action: (ResultSet) => TResult): TResult = {
+                             query: String,
+                             options: JDBCOptions,
+                             action: (ResultSet) => TResult): TResult = {
     val conn: Connection = JdbcUtils.createConnectionFactory(options)()
     try {
       val statement = conn.prepareStatement(query)
@@ -123,7 +125,7 @@ object Utils extends Logging {
   }
 
   def readLongScalar(query: String, jdbcOptions: JDBCOptions): Option[Long] = {
-    executeQuery(query, jdbcOptions, (rs: ResultSet) => 
+    executeQuery(query, jdbcOptions, (rs: ResultSet) =>
       rs.next() match {
         case true => Some(rs.getLong(1))
         case false => None
@@ -136,12 +138,14 @@ object Utils extends Logging {
     executeQuery(query, jdbcOptions, action)
   }
 
+  // scalastyle:off
   // Copy from:
   // https://github.com/apache/spark/blob/master/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JdbcUtils.scala
+  // scalastyle:on
 
   def resultSetToSparkInternalRows(
-      resultSet: ResultSet,
-      schema: StructType): Iterator[InternalRow] = {
+                                    resultSet: ResultSet,
+                                    schema: StructType): Iterator[InternalRow] = {
     new NextIterator[InternalRow] {
       private[this] val rs = resultSet
       private[this] val getters: Array[JDBCValueGetter] = makeGetters(schema)
